@@ -39,6 +39,10 @@ export default function AppPage() {
   const [erroPac, setErroPac] = useState('')
   const [loadingPac, setLoadingPac] = useState(false)
   const [sessaoAtiva, setSessaoAtiva] = useState(null)
+  const [modoEdicao, setModoEdicao] = useState(false)
+  const [formEdicao, setFormEdicao] = useState(null)
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [erroEdicao, setErroEdicao] = useState('')
   const [busca, setBusca] = useState('')
 
   function getFormVazio() {
@@ -97,7 +101,79 @@ export default function AppPage() {
     if (!error) {
       setSessoes(prev => prev.filter(s => s.id !== id))
       setSessaoAtiva(null)
+      setModoEdicao(false)
     }
+  }
+
+  function podeEditar(sess) {
+    if (!profile) return false
+    if (profile.role === 'admin') return true
+    return sess.terapeuta_id === user.id
+  }
+
+  function iniciarEdicao(sess) {
+    setFormEdicao({
+      semana: sess.semana || '',
+      palavra_encontro: sess.palavra_encontro || '',
+      data_sessao: sess.data_sessao || '',
+      mae_antes: sess.mae_antes || '',
+      mae_depois: sess.mae_depois || '',
+      mae_avaliacao: sess.mae_avaliacao || '',
+      mae_av_obs: sess.mae_av_obs || '',
+      mae_orientacao: sess.mae_orientacao || '',
+      humor_inicio: Array.isArray(sess.humor_inicio) ? sess.humor_inicio : (sess.humor_inicio ? [sess.humor_inicio] : []),
+      chegada: sess.chegada || '',
+      st_vinculo: sess.st_vinculo || 0,
+      conv_checks: sess.conv_checks || [],
+      conversa: sess.conversa || '',
+      frase: sess.frase || '',
+      com_func: sess.com_func || [],
+      ativ_checks: sess.ativ_checks || [],
+      palavras_novas: sess.palavras_novas || '',
+      expressao: sess.expressao || '',
+      corpo: sess.corpo || '',
+      material: sess.material || '',
+      obs_checks: sess.obs_checks || [],
+      st_envolvimento: sess.st_envolvimento || 0,
+      casa_anterior: sess.casa_anterior || '',
+      casa_checks: sess.casa_checks || [],
+      casa_obs: sess.casa_obs || '',
+      humor_fim: Array.isArray(sess.humor_fim) ? sess.humor_fim : (sess.humor_fim ? [sess.humor_fim] : []),
+      oq_fez: sess.oq_fez || '',
+      validacao: sess.validacao || '',
+      resposta_rec: sess.resposta_rec || '',
+      st_autoestima: sess.st_autoestima || 0,
+      para_mae: sess.para_mae || '',
+      para_mae_ativ: sess.para_mae_ativ || '',
+      aprendeu: sess.aprendeu || '',
+      obs: sess.obs || '',
+      prox: sess.prox || '',
+      st_geral: sess.st_geral || 0,
+      conf_hipoteses: sess.conf_hipoteses || '',
+      conf_indicadores: sess.conf_indicadores || '',
+      conf_alertas: sess.conf_alertas || '',
+      conf_encam: sess.conf_encam || '',
+    })
+    setModoEdicao(true)
+    setErroEdicao('')
+  }
+
+  async function salvarEdicao() {
+    setSalvandoEdicao(true)
+    setErroEdicao('')
+    const { error } = await supabase
+      .from('sessoes')
+      .update(formEdicao)
+      .eq('id', sessaoAtiva.id)
+    if (error) {
+      setErroEdicao('Erro ao salvar: ' + error.message)
+    } else {
+      const atualizado = { ...sessaoAtiva, ...formEdicao }
+      setSessaoAtiva(atualizado)
+      setSessoes(prev => prev.map(s => s.id === sessaoAtiva.id ? { ...s, ...formEdicao } : s))
+      setModoEdicao(false)
+    }
+    setSalvandoEdicao(false)
   }
 
   async function criarPaciente() {
@@ -576,14 +652,15 @@ export default function AppPage() {
                   })
             }
 
-            {/* MODAL DE DETALHE */}
+            {/* MODAL */}
             {sessaoAtiva && (
               <div
                 style={s.modalBg}
-                onClick={e => { if (e.target === e.currentTarget) setSessaoAtiva(null) }}
+                onClick={e => { if (e.target === e.currentTarget) { setSessaoAtiva(null); setModoEdicao(false) } }}
               >
                 <div style={s.modalBox}>
-                  {/* Cabeçalho do modal */}
+
+                  {/* Cabeçalho */}
                   <div style={s.modalHeader}>
                     <div>
                       <div style={{ fontSize:19, fontWeight:500, color:'#f0f0f0' }}>
@@ -591,158 +668,285 @@ export default function AppPage() {
                       </div>
                       <div style={{ fontSize:13, color:'#888', marginTop:2 }}>
                         {SK[sessaoAtiva.semana]?.label || sessaoAtiva.semana || '—'} · {fmtD(sessaoAtiva.data_sessao)}
+                        {sessaoAtiva.terapeuta_id !== user?.id && profile?.role === 'admin' && (
+                          <span style={{ marginLeft:8, fontSize:11, color:'#9B59B6', background:'rgba(155,89,182,0.12)', padding:'2px 8px', borderRadius:10 }}>
+                            registro de outra terapeuta
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <button style={s.modalClose} onClick={() => setSessaoAtiva(null)}>✕</button>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      {podeEditar(sessaoAtiva) && !modoEdicao && (
+                        <button
+                          style={{ padding:'6px 14px', fontSize:13, fontWeight:500, background:'rgba(93,202,165,0.12)', color:'#5DCAA5', border:'1px solid rgba(93,202,165,0.3)', borderRadius:20, cursor:'pointer' }}
+                          onClick={() => iniciarEdicao(sessaoAtiva)}
+                        >
+                          Editar
+                        </button>
+                      )}
+                      {modoEdicao && (
+                        <button
+                          style={{ padding:'6px 14px', fontSize:13, color:'#888', background:'transparent', border:'1px solid rgba(255,255,255,0.1)', borderRadius:20, cursor:'pointer' }}
+                          onClick={() => setModoEdicao(false)}
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button style={s.modalClose} onClick={() => { setSessaoAtiva(null); setModoEdicao(false) }}>✕</button>
+                    </div>
                   </div>
 
-                  {/* Palavra destaque */}
-                  {sessaoAtiva.palavra_encontro && (
-                    <div style={{ background:'rgba(242,167,195,0.1)', border:'1px solid rgba(242,167,195,0.25)', borderRadius:12, padding:'10px 16px', marginBottom:16, fontSize:20, fontWeight:500, color:'#F2A7C3', textAlign:'center' }}>
-                      "{sessaoAtiva.palavra_encontro}"
-                    </div>
-                  )}
+                  {/* ── MODO VISUALIZAÇÃO ── */}
+                  {!modoEdicao && (
+                    <>
+                      {sessaoAtiva.palavra_encontro && (
+                        <div style={{ background:'rgba(242,167,195,0.1)', border:'1px solid rgba(242,167,195,0.25)', borderRadius:12, padding:'10px 16px', marginBottom:16, fontSize:20, fontWeight:500, color:'#F2A7C3', textAlign:'center' }}>
+                          "{sessaoAtiva.palavra_encontro}"
+                        </div>
+                      )}
 
-                  {/* Fotos */}
-                  {sessaoAtiva.foto_url && (() => {
-                    let urls = []
-                    try { urls = JSON.parse(sessaoAtiva.foto_url) }
-                    catch { urls = [sessaoAtiva.foto_url] }
-                    if (!Array.isArray(urls)) urls = [urls]
-                    return urls.length > 0 ? (
-                      <div style={{ display:'grid', gridTemplateColumns: urls.length > 1 ? '1fr 1fr' : '1fr', gap:8, marginBottom:16 }}>
-                        {urls.map((url, i) => (
-                          <img key={i} src={url} alt={`foto ${i+1}`}
-                            style={{ width:'100%', maxHeight:220, objectFit:'cover', borderRadius:12 }}
-                            onError={e => { e.target.style.display='none' }}
-                          />
+                      {/* Fotos */}
+                      {sessaoAtiva.foto_url && (() => {
+                        let urls = []
+                        try { urls = JSON.parse(sessaoAtiva.foto_url) } catch { urls = [sessaoAtiva.foto_url] }
+                        if (!Array.isArray(urls)) urls = [urls]
+                        return urls.length > 0 ? (
+                          <div style={{ display:'grid', gridTemplateColumns: urls.length > 1 ? '1fr 1fr' : '1fr', gap:8, marginBottom:16 }}>
+                            {urls.map((url, i) => (
+                              <img key={i} src={url} alt={`foto ${i+1}`}
+                                style={{ width:'100%', maxHeight:220, objectFit:'cover', borderRadius:12 }}
+                                onError={e => { e.target.style.display='none' }}
+                              />
+                            ))}
+                          </div>
+                        ) : null
+                      })()}
+
+                      {/* Estrelas */}
+                      <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:16, padding:'10px 14px', background:'rgba(255,255,255,0.03)', borderRadius:10 }}>
+                        {[
+                          { label:'Vínculo', val: sessaoAtiva.st_vinculo },
+                          { label:'Envolvimento', val: sessaoAtiva.st_envolvimento },
+                          { label:'Autoestima', val: sessaoAtiva.st_autoestima },
+                          { label:'Evolução geral', val: sessaoAtiva.st_geral },
+                        ].map(item => (
+                          <div key={item.label}>
+                            <div style={{ fontSize:11, color:'#666', marginBottom:2 }}>{item.label}</div>
+                            <div style={{ fontSize:15, color:'#FFD966' }}>
+                              {'★'.repeat(item.val || 0)}
+                              <span style={{ color:'#333' }}>{'★'.repeat(5 - (item.val || 0))}</span>
+                            </div>
+                          </div>
                         ))}
                       </div>
-                    ) : null
-                  })()}
 
-                  {/* Estrelas */}
-                  <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:16, padding:'10px 14px', background:'rgba(255,255,255,0.03)', borderRadius:10 }}>
-                    {[
-                      { label:'Vínculo', val: sessaoAtiva.st_vinculo },
-                      { label:'Envolvimento', val: sessaoAtiva.st_envolvimento },
-                      { label:'Autoestima', val: sessaoAtiva.st_autoestima },
-                      { label:'Evolução geral', val: sessaoAtiva.st_geral },
-                    ].map(item => (
-                      <div key={item.label}>
-                        <div style={{ fontSize:11, color:'#666', marginBottom:2 }}>{item.label}</div>
-                        <div style={{ fontSize:15, color:'#FFD966' }}>
-                          {'★'.repeat(item.val || 0)}
-                          <span style={{ color:'#333' }}>{'★'.repeat(5 - (item.val || 0))}</span>
-                        </div>
+                      {((sessaoAtiva.humor_inicio?.length) || (sessaoAtiva.humor_fim?.length)) && (
+                        <DetalheSecao titulo="Humor">
+                          <DetalheItem label="Início" val={Array.isArray(sessaoAtiva.humor_inicio) ? sessaoAtiva.humor_inicio.join(', ') : sessaoAtiva.humor_inicio} />
+                          <DetalheItem label="Final" val={Array.isArray(sessaoAtiva.humor_fim) ? sessaoAtiva.humor_fim.join(', ') : sessaoAtiva.humor_fim} />
+                        </DetalheSecao>
+                      )}
+                      <DetalheSecao titulo="Relato da mãe" cor="#A8E6CF">
+                        <DetalheItem label="Antes do encontro" val={sessaoAtiva.mae_antes} />
+                        <DetalheItem label="Depois do encontro" val={sessaoAtiva.mae_depois} />
+                        <DetalheItem label="Avaliação" val={sessaoAtiva.mae_avaliacao} />
+                        <DetalheItem label="Observações sobre a mãe" val={sessaoAtiva.mae_av_obs} />
+                        <DetalheItem label="Orientação dada" val={sessaoAtiva.mae_orientacao} />
+                      </DetalheSecao>
+                      <DetalheSecao titulo="1. Chegada — rapport" cor="#F2A7C3">
+                        <DetalheItem label="Como ela chegou" val={sessaoAtiva.chegada} />
+                        {sessaoAtiva.conv_checks?.length > 0 && <DetalheItem label="Perguntas usadas" val={sessaoAtiva.conv_checks.join(' · ')} />}
+                        <DetalheItem label="Como ela respondeu" val={sessaoAtiva.conversa} />
+                      </DetalheSecao>
+                      <DetalheSecao titulo="3. Atividade central" cor="#5DCAA5">
+                        <DetalheItem label="Frase trabalhada" val={sessaoAtiva.frase} destaque />
+                        {sessaoAtiva.com_func?.length > 0 && <DetalheItem label="Comunicação funcional" val={sessaoAtiva.com_func.map(c=>({iniciou_fala:'Iniciou fala espontânea',respondeu_perguntada:'Respondeu quando perguntada',usou_frase_trabalhada:'Usou a frase trabalhada'}[c]||c)).join(' · ')} />}
+                        {sessaoAtiva.ativ_checks?.length > 0 && <DetalheItem label="Atividades realizadas" val={sessaoAtiva.ativ_checks.join(' · ')} />}
+                        <DetalheItem label="Palavras novas" val={sessaoAtiva.palavras_novas} />
+                        <DetalheItem label="O que ela expressou" val={sessaoAtiva.expressao} />
+                        <DetalheItem label="Corpo e emoção" val={sessaoAtiva.corpo} />
+                        <DetalheItem label="Material usado" val={sessaoAtiva.material} />
+                        {sessaoAtiva.obs_checks?.length > 0 && <DetalheItem label="O que foi observado" val={sessaoAtiva.obs_checks.join(' · ')} />}
+                      </DetalheSecao>
+                      <DetalheSecao titulo="Prática em casa" cor="#90CBF9">
+                        <DetalheItem label="Semana anterior" val={sessaoAtiva.casa_anterior} />
+                        {sessaoAtiva.casa_checks?.length > 0 && <DetalheItem label="Combinações" val={sessaoAtiva.casa_checks.join(' · ')} />}
+                        <DetalheItem label="Observações" val={sessaoAtiva.casa_obs} />
+                      </DetalheSecao>
+                      <DetalheSecao titulo="4. Encerramento" cor="#C4B0F5">
+                        <DetalheItem label='"O que você fez aqui comigo hoje?"' val={sessaoAtiva.oq_fez} />
+                        <DetalheItem label="Validação oferecida" val={sessaoAtiva.validacao} />
+                        <DetalheItem label="Resposta ao reconhecimento" val={sessaoAtiva.resposta_rec} />
+                      </DetalheSecao>
+                      {(sessaoAtiva.para_mae || sessaoAtiva.para_mae_ativ) && (
+                        <DetalheSecao titulo="Para a mãe" cor="#FFB347">
+                          <DetalheItem label="Mensagem" val={sessaoAtiva.para_mae} />
+                          <DetalheItem label="Atividade juntas" val={sessaoAtiva.para_mae_ativ} />
+                        </DetalheSecao>
+                      )}
+                      <DetalheSecao titulo="Reflexão final" cor="#90CBF9">
+                        <DetalheItem label="O que você aprendeu com ela hoje" val={sessaoAtiva.aprendeu} />
+                        <DetalheItem label="Observações livres" val={sessaoAtiva.obs} />
+                        <DetalheItem label="Foco do próximo encontro" val={sessaoAtiva.prox} />
+                      </DetalheSecao>
+                      {(sessaoAtiva.conf_hipoteses || sessaoAtiva.conf_indicadores || sessaoAtiva.conf_alertas || sessaoAtiva.conf_encam) && (
+                        <DetalheSecao titulo="Anotações clínicas" cor="#9B59B6">
+                          <DetalheItem label="Hipóteses clínicas" val={sessaoAtiva.conf_hipoteses} />
+                          <DetalheItem label="Indicadores" val={sessaoAtiva.conf_indicadores} />
+                          <DetalheItem label="Alertas" val={sessaoAtiva.conf_alertas} />
+                          <DetalheItem label="Encaminhamentos" val={sessaoAtiva.conf_encam} />
+                        </DetalheSecao>
+                      )}
+
+                      {/* Ações visualização */}
+                      <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
+                        <button style={{ ...s.btnLimpar, flex:1 }} onClick={() => setSessaoAtiva(null)}>Fechar</button>
+                        {podeEditar(sessaoAtiva) && (
+                          <button style={{ padding:'10px 20px', fontSize:15, fontWeight:500, background:'rgba(248,113,113,0.1)', color:'#f87171', border:'1px solid rgba(248,113,113,0.25)', borderRadius:24, cursor:'pointer' }}
+                            onClick={() => excluirSessao(sessaoAtiva.id)}>
+                            Excluir registro
+                          </button>
+                        )}
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Humor */}
-                  {((sessaoAtiva.humor_inicio?.length) || (sessaoAtiva.humor_fim?.length)) && (
-                    <DetalheSecao titulo="Humor">
-                      <DetalheItem label="Início" val={Array.isArray(sessaoAtiva.humor_inicio) ? sessaoAtiva.humor_inicio.join(', ') : sessaoAtiva.humor_inicio} />
-                      <DetalheItem label="Final" val={Array.isArray(sessaoAtiva.humor_fim) ? sessaoAtiva.humor_fim.join(', ') : sessaoAtiva.humor_fim} />
-                    </DetalheSecao>
+                    </>
                   )}
 
-                  {/* Relato da mãe */}
-                  <DetalheSecao titulo="Relato da mãe" cor="#A8E6CF">
-                    <DetalheItem label="Antes do encontro" val={sessaoAtiva.mae_antes} />
-                    <DetalheItem label="Depois do encontro" val={sessaoAtiva.mae_depois} />
-                    <DetalheItem label="Avaliação" val={sessaoAtiva.mae_avaliacao} />
-                    <DetalheItem label="Observações sobre a mãe" val={sessaoAtiva.mae_av_obs} />
-                    <DetalheItem label="Orientação dada" val={sessaoAtiva.mae_orientacao} />
-                  </DetalheSecao>
+                  {/* ── MODO EDIÇÃO ── */}
+                  {modoEdicao && formEdicao && (
+                    <div>
+                      <div style={{ fontSize:13, color:'#5DCAA5', background:'rgba(93,202,165,0.08)', border:'1px solid rgba(93,202,165,0.2)', borderRadius:10, padding:'8px 14px', marginBottom:16 }}>
+                        Modo edição — altere os campos e salve ao finalizar.
+                      </div>
 
-                  {/* Chegada */}
-                  <DetalheSecao titulo="1. Chegada — rapport" cor="#F2A7C3">
-                    <DetalheItem label="Como ela chegou" val={sessaoAtiva.chegada} />
-                    {sessaoAtiva.conv_checks?.length > 0 && (
-                      <DetalheItem label="Perguntas usadas" val={sessaoAtiva.conv_checks.join(' · ')} />
-                    )}
-                    <DetalheItem label="Como ela respondeu" val={sessaoAtiva.conversa} />
-                  </DetalheSecao>
+                      <SecaoEdit titulo="Identificação" cor="#F2A7C3">
+                        <Lbl>Data do encontro</Lbl>
+                        <input type="date" value={formEdicao.data_sessao} onChange={e=>setFormEdicao(f=>({...f,data_sessao:e.target.value}))} />
+                        <Lbl>Semana do programa</Lbl>
+                        <select value={formEdicao.semana} onChange={e=>setFormEdicao(f=>({...f,semana:e.target.value}))}>
+                          <option value="">Selecione...</option>
+                          {Object.entries(SK).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <Lbl>Palavra do encontro</Lbl>
+                        <input style={{ fontSize:20, fontWeight:500, textAlign:'center', background:'rgba(242,167,195,0.08)', borderColor:'#F2A7C3', color:'#F2A7C3' }} value={formEdicao.palavra_encontro} onChange={e=>setFormEdicao(f=>({...f,palavra_encontro:e.target.value}))} />
+                      </SecaoEdit>
 
-                  {/* Atividade */}
-                  <DetalheSecao titulo="3. Atividade central" cor="#5DCAA5">
-                    <DetalheItem label="Frase trabalhada" val={sessaoAtiva.frase} destaque />
-                    {sessaoAtiva.com_func?.length > 0 && (
-                      <DetalheItem label="Comunicação funcional" val={sessaoAtiva.com_func.map(c => ({
-                        iniciou_fala:'Iniciou fala espontânea',
-                        respondeu_perguntada:'Respondeu quando perguntada',
-                        usou_frase_trabalhada:'Usou a frase trabalhada'
-                      }[c]||c)).join(' · ')} />
-                    )}
-                    {sessaoAtiva.ativ_checks?.length > 0 && (
-                      <DetalheItem label="Atividades realizadas" val={sessaoAtiva.ativ_checks.join(' · ')} />
-                    )}
-                    <DetalheItem label="Palavras novas espontâneas" val={sessaoAtiva.palavras_novas} />
-                    <DetalheItem label="O que ela expressou" val={sessaoAtiva.expressao} />
-                    <DetalheItem label="Corpo e emoção" val={sessaoAtiva.corpo} />
-                    <DetalheItem label="Material usado" val={sessaoAtiva.material} />
-                    {sessaoAtiva.obs_checks?.length > 0 && (
-                      <DetalheItem label="O que foi observado" val={sessaoAtiva.obs_checks.join(' · ')} />
-                    )}
-                  </DetalheSecao>
+                      <SecaoEdit titulo="Relato da mãe" cor="#A8E6CF">
+                        <Lbl>Antes do encontro</Lbl>
+                        <textarea value={formEdicao.mae_antes} onChange={e=>setFormEdicao(f=>({...f,mae_antes:e.target.value}))} />
+                        <Lbl>Depois do encontro</Lbl>
+                        <textarea value={formEdicao.mae_depois} onChange={e=>setFormEdicao(f=>({...f,mae_depois:e.target.value}))} />
+                        <Lbl>Observações sobre a mãe</Lbl>
+                        <textarea value={formEdicao.mae_av_obs} onChange={e=>setFormEdicao(f=>({...f,mae_av_obs:e.target.value}))} />
+                        <Lbl>Orientação dada</Lbl>
+                        <textarea value={formEdicao.mae_orientacao} onChange={e=>setFormEdicao(f=>({...f,mae_orientacao:e.target.value}))} />
+                      </SecaoEdit>
 
-                  {/* Casa */}
-                  <DetalheSecao titulo="Prática em casa" cor="#90CBF9">
-                    <DetalheItem label="O que ela trouxe da semana anterior" val={sessaoAtiva.casa_anterior} />
-                    {sessaoAtiva.casa_checks?.length > 0 && (
-                      <DetalheItem label="Combinações desta semana" val={sessaoAtiva.casa_checks.join(' · ')} />
-                    )}
-                    <DetalheItem label="Observações" val={sessaoAtiva.casa_obs} />
-                  </DetalheSecao>
+                      <SecaoEdit titulo="1. Chegada — rapport" cor="#F2A7C3">
+                        <Lbl>Humor no início</Lbl>
+                        <HumorRow opcoes={['Muito animada','Tranquila','Quieta / fechada','Agitada','Resistente','Sonolenta']} valores={formEdicao.humor_inicio} onChange={v=>setFormEdicao(f=>({...f,humor_inicio:v}))} />
+                        <Lbl>Como ela chegou</Lbl>
+                        <textarea value={formEdicao.chegada} onChange={e=>setFormEdicao(f=>({...f,chegada:e.target.value}))} />
+                        <Lbl>Como ela respondeu à conversa</Lbl>
+                        <textarea value={formEdicao.conversa} onChange={e=>setFormEdicao(f=>({...f,conversa:e.target.value}))} />
+                        <Lbl>Vínculo percebido</Lbl>
+                        <Estrelas valor={formEdicao.st_vinculo} onChange={v=>setFormEdicao(f=>({...f,st_vinculo:v}))} />
+                      </SecaoEdit>
 
-                  {/* Encerramento */}
-                  <DetalheSecao titulo="4. Encerramento" cor="#C4B0F5">
-                    <DetalheItem label='"O que você fez aqui comigo hoje?"' val={sessaoAtiva.oq_fez} />
-                    <DetalheItem label="Validação oferecida" val={sessaoAtiva.validacao} />
-                    <DetalheItem label="Resposta ao reconhecimento" val={sessaoAtiva.resposta_rec} />
-                  </DetalheSecao>
+                      <SecaoEdit titulo="3. Atividade central" cor="#5DCAA5">
+                        <Lbl>Frase trabalhada</Lbl>
+                        <input value={formEdicao.frase} onChange={e=>setFormEdicao(f=>({...f,frase:e.target.value}))} />
+                        <Lbl>Comunicação funcional</Lbl>
+                        <div style={s.cfGrid}>
+                          {[{val:'iniciou_fala',label:'Iniciou fala espontânea'},{val:'respondeu_perguntada',label:'Respondeu quando perguntada'},{val:'usou_frase_trabalhada',label:'Usou a frase trabalhada'}].map(cf=>(
+                            <div key={cf.val} style={{...s.cfItem,...(formEdicao.com_func.includes(cf.val)?s.cfItemOn:{})}}
+                              onClick={()=>setFormEdicao(f=>({...f,com_func:f.com_func.includes(cf.val)?f.com_func.filter(x=>x!==cf.val):[...f.com_func,cf.val]}))}>
+                              <div style={s.cfLabel}>{cf.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <Lbl>Palavras novas espontâneas</Lbl>
+                        <input value={formEdicao.palavras_novas} onChange={e=>setFormEdicao(f=>({...f,palavras_novas:e.target.value}))} />
+                        <Lbl>O que ela expressou</Lbl>
+                        <textarea value={formEdicao.expressao} onChange={e=>setFormEdicao(f=>({...f,expressao:e.target.value}))} />
+                        <Lbl>Corpo e emoção</Lbl>
+                        <textarea value={formEdicao.corpo} onChange={e=>setFormEdicao(f=>({...f,corpo:e.target.value}))} />
+                        <Lbl>Material usado</Lbl>
+                        <input value={formEdicao.material} onChange={e=>setFormEdicao(f=>({...f,material:e.target.value}))} />
+                        <Lbl>Qualidade do envolvimento</Lbl>
+                        <Estrelas valor={formEdicao.st_envolvimento} onChange={v=>setFormEdicao(f=>({...f,st_envolvimento:v}))} />
+                      </SecaoEdit>
 
-                  {/* Para a mãe */}
-                  {(sessaoAtiva.para_mae || sessaoAtiva.para_mae_ativ) && (
-                    <DetalheSecao titulo="Para a mãe" cor="#FFB347">
-                      <DetalheItem label="Mensagem" val={sessaoAtiva.para_mae} />
-                      <DetalheItem label="Atividade juntas" val={sessaoAtiva.para_mae_ativ} />
-                    </DetalheSecao>
+                      <SecaoEdit titulo="Prática em casa" cor="#90CBF9">
+                        <Lbl>O que ela trouxe da semana anterior</Lbl>
+                        <textarea value={formEdicao.casa_anterior} onChange={e=>setFormEdicao(f=>({...f,casa_anterior:e.target.value}))} />
+                        <Lbl>Observações</Lbl>
+                        <textarea value={formEdicao.casa_obs} onChange={e=>setFormEdicao(f=>({...f,casa_obs:e.target.value}))} />
+                      </SecaoEdit>
+
+                      <SecaoEdit titulo="4. Encerramento" cor="#C4B0F5">
+                        <Lbl>Humor ao final</Lbl>
+                        <HumorRow opcoes={['Muito animada','Tranquila','Satisfeita','Cansada','Emotiva','Dispersa']} valores={formEdicao.humor_fim} onChange={v=>setFormEdicao(f=>({...f,humor_fim:v}))} />
+                        <Lbl>"O que você fez aqui comigo hoje?"</Lbl>
+                        <textarea value={formEdicao.oq_fez} onChange={e=>setFormEdicao(f=>({...f,oq_fez:e.target.value}))} />
+                        <Lbl>Validação que você ofereceu</Lbl>
+                        <textarea value={formEdicao.validacao} onChange={e=>setFormEdicao(f=>({...f,validacao:e.target.value}))} />
+                        <Lbl>Resposta dela ao reconhecimento</Lbl>
+                        <textarea value={formEdicao.resposta_rec} onChange={e=>setFormEdicao(f=>({...f,resposta_rec:e.target.value}))} />
+                        <Lbl>Autoestima percebida</Lbl>
+                        <Estrelas valor={formEdicao.st_autoestima} onChange={v=>setFormEdicao(f=>({...f,st_autoestima:v}))} />
+                      </SecaoEdit>
+
+                      <SecaoEdit titulo="Para a mãe" cor="#FFB347">
+                        <Lbl>Mensagem desta semana</Lbl>
+                        <textarea value={formEdicao.para_mae} onChange={e=>setFormEdicao(f=>({...f,para_mae:e.target.value}))} />
+                        <Lbl>Atividade para fazer juntas</Lbl>
+                        <textarea value={formEdicao.para_mae_ativ} onChange={e=>setFormEdicao(f=>({...f,para_mae_ativ:e.target.value}))} />
+                      </SecaoEdit>
+
+                      <SecaoEdit titulo="Reflexão final" cor="#90CBF9">
+                        <Lbl>O que você aprendeu com ela hoje</Lbl>
+                        <textarea value={formEdicao.aprendeu} onChange={e=>setFormEdicao(f=>({...f,aprendeu:e.target.value}))} />
+                        <Lbl>Observações livres</Lbl>
+                        <textarea value={formEdicao.obs} onChange={e=>setFormEdicao(f=>({...f,obs:e.target.value}))} />
+                        <Lbl>Foco para o próximo encontro</Lbl>
+                        <textarea value={formEdicao.prox} onChange={e=>setFormEdicao(f=>({...f,prox:e.target.value}))} />
+                        <Lbl>Evolução geral</Lbl>
+                        <Estrelas valor={formEdicao.st_geral} onChange={v=>setFormEdicao(f=>({...f,st_geral:v}))} />
+                      </SecaoEdit>
+
+                      <SecaoEdit titulo="Anotações clínicas" cor="#9B59B6">
+                        <Lbl>Hipóteses clínicas</Lbl>
+                        <textarea value={formEdicao.conf_hipoteses} onChange={e=>setFormEdicao(f=>({...f,conf_hipoteses:e.target.value}))} />
+                        <Lbl>Indicadores de desenvolvimento</Lbl>
+                        <textarea value={formEdicao.conf_indicadores} onChange={e=>setFormEdicao(f=>({...f,conf_indicadores:e.target.value}))} />
+                        <Lbl>Alertas</Lbl>
+                        <textarea value={formEdicao.conf_alertas} onChange={e=>setFormEdicao(f=>({...f,conf_alertas:e.target.value}))} />
+                        <Lbl>Encaminhamentos</Lbl>
+                        <textarea value={formEdicao.conf_encam} onChange={e=>setFormEdicao(f=>({...f,conf_encam:e.target.value}))} />
+                      </SecaoEdit>
+
+                      {erroEdicao && (
+                        <p style={{ fontSize:14, color:'#f87171', background:'rgba(248,113,113,0.1)', borderRadius:10, padding:'8px 14px', marginBottom:12 }}>
+                          {erroEdicao}
+                        </p>
+                      )}
+
+                      {/* Ações edição */}
+                      <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
+                        <button
+                          style={{ ...s.btnSalvar, flex:1, opacity: salvandoEdicao ? 0.7 : 1 }}
+                          onClick={salvarEdicao}
+                          disabled={salvandoEdicao}
+                        >
+                          {salvandoEdicao ? 'Salvando...' : 'Salvar alterações'}
+                        </button>
+                        <button style={s.btnLimpar} onClick={() => setModoEdicao(false)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
                   )}
 
-                  {/* Reflexão */}
-                  <DetalheSecao titulo="Reflexão final" cor="#90CBF9">
-                    <DetalheItem label="O que você aprendeu com ela hoje" val={sessaoAtiva.aprendeu} />
-                    <DetalheItem label="Observações livres" val={sessaoAtiva.obs} />
-                    <DetalheItem label="Foco do próximo encontro" val={sessaoAtiva.prox} />
-                  </DetalheSecao>
-
-                  {/* Clínico — só aparece se tiver algo */}
-                  {(sessaoAtiva.conf_hipoteses || sessaoAtiva.conf_indicadores || sessaoAtiva.conf_alertas || sessaoAtiva.conf_encam) && (
-                    <DetalheSecao titulo="Anotações clínicas" cor="#9B59B6">
-                      <DetalheItem label="Hipóteses clínicas" val={sessaoAtiva.conf_hipoteses} />
-                      <DetalheItem label="Indicadores de desenvolvimento" val={sessaoAtiva.conf_indicadores} />
-                      <DetalheItem label="Alertas" val={sessaoAtiva.conf_alertas} />
-                      <DetalheItem label="Encaminhamentos" val={sessaoAtiva.conf_encam} />
-                    </DetalheSecao>
-                  )}
-
-                  {/* Ações */}
-                  <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
-                    <button
-                      style={{ ...s.btnLimpar, flex:1 }}
-                      onClick={() => setSessaoAtiva(null)}
-                    >
-                      Fechar
-                    </button>
-                    <button
-                      style={{ padding:'10px 20px', fontSize:15, fontWeight:500, background:'rgba(248,113,113,0.1)', color:'#f87171', border:'1px solid rgba(248,113,113,0.25)', borderRadius:24, cursor:'pointer' }}
-                      onClick={() => excluirSessao(sessaoAtiva.id)}
-                    >
-                      Excluir registro
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
@@ -788,6 +992,17 @@ export default function AppPage() {
 }
 
 // ─── COMPONENTES INTERNOS ───
+function SecaoEdit({ titulo, cor = '#F2A7C3', children }) {
+  return (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:11, fontWeight:500, color: cor, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:10, paddingBottom:4, borderBottom:`1px solid ${cor}30` }}>
+        {titulo}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 function DetalheSecao({ titulo, cor = '#F2A7C3', children }) {
   const hasContent = Array.isArray(children)
     ? children.some(c => c && c.props?.val)
