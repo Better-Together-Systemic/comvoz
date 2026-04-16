@@ -30,8 +30,8 @@ export default function AppPage() {
 
   // Formulário
   const [form, setForm] = useState(getFormVazio())
-  const [fotoFile, setFotoFile] = useState(null)
-  const [fotoPreview, setFotoPreview] = useState(null)
+  const [fotos, setFotos] = useState([])       // [{file, preview, uploading}]
+  const [dragOver, setDragOver] = useState(false)
   const [novaPacNome, setNovaPacNome] = useState('')
   const [novaPacMae, setNovaPacMae] = useState('')
   const [showNovaPac, setShowNovaPac] = useState(false)
@@ -46,13 +46,13 @@ export default function AppPage() {
       paciente_id: '', data_sessao: new Date().toISOString().split('T')[0],
       semana: '', palavra_encontro: '',
       mae_antes: '', mae_depois: '', mae_avaliacao: '', mae_av_obs: '', mae_orientacao: '',
-      humor_inicio: '', chegada: '', st_vinculo: 0,
+      humor_inicio: [], chegada: '', st_vinculo: 0,
       conv_checks: [], conversa: '',
       frase: '', com_func: [], ativ_checks: [],
       palavras_novas: '', expressao: '', corpo: '', material: '', obs_checks: [],
       st_envolvimento: 0,
       casa_anterior: '', casa_checks: [], casa_obs: '',
-      humor_fim: '', oq_fez: '', validacao: '', resposta_rec: '', st_autoestima: 0,
+      humor_fim: [], oq_fez: '', validacao: '', resposta_rec: '', st_autoestima: 0,
       para_mae: '', para_mae_ativ: '',
       aprendeu: '', obs: '', prox: '', st_geral: 0,
       conf_hipoteses: '', conf_indicadores: '', conf_alertas: '', conf_encam: '',
@@ -131,13 +131,24 @@ export default function AppPage() {
     setCriandoPac(false)
   }
 
-  function handleFoto(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setFotoFile(file)
-    const reader = new FileReader()
-    reader.onload = ev => setFotoPreview(ev.target.result)
-    reader.readAsDataURL(file)
+  function adicionarFotos(files) {
+    const novas = Array.from(files).map(file => ({
+      file,
+      preview: URL.createObjectURL(file),
+      id: Math.random().toString(36).slice(2),
+    }))
+    setFotos(prev => [...prev, ...novas])
+  }
+
+  function removerFoto(id) {
+    setFotos(prev => prev.filter(f => f.id !== id))
+  }
+
+  function onDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    const files = e.dataTransfer?.files
+    if (files?.length) adicionarFotos(files)
   }
 
   async function salvar() {
@@ -148,27 +159,34 @@ export default function AppPage() {
     setMensagem('')
     try {
       const sessaoId = crypto.randomUUID()
-      let fotoUrl = null
-      if (fotoFile) {
-        const ext = fotoFile.name.split('.').pop()
-        const path = `${user.id}/${sessaoId}.${ext}`
+
+      // Upload de múltiplas fotos
+      const fotoUrls = []
+      for (const foto of fotos) {
+        const ext = foto.file.name.split('.').pop()
+        const path = `${user.id}/${sessaoId}/${foto.id}.${ext}`
         const { error: upErr } = await supabase.storage
-          .from('fotos-sessoes').upload(path, fotoFile, { upsert: true })
+          .from('fotos-sessoes')
+          .upload(path, foto.file, { upsert: true })
         if (!upErr) {
-          const { data: urlData } = supabase.storage
-            .from('fotos-sessoes').getPublicUrl(path)
-          fotoUrl = urlData.publicUrl
+          // URL assinada com validade de 10 anos
+          const { data: signed } = await supabase.storage
+            .from('fotos-sessoes')
+            .createSignedUrl(path, 60 * 60 * 24 * 365 * 10)
+          if (signed?.signedUrl) fotoUrls.push(signed.signedUrl)
         }
       }
+
       const { error } = await supabase.from('sessoes').insert({
         id: sessaoId,
         terapeuta_id: user.id,
         ...form,
-        foto_url: fotoUrl,
+        foto_url: fotoUrls.length > 0 ? JSON.stringify(fotoUrls) : null,
       })
       if (error) throw error
       setMensagem('Encontro salvo!')
-      setForm(getFormVazio()); setFotoFile(null); setFotoPreview(null)
+      setForm(getFormVazio())
+      setFotos([])
       fetchSessoes()
     } catch (e) {
       setMensagem('Erro ao salvar: ' + e.message)
@@ -318,15 +336,43 @@ export default function AppPage() {
                   />
                 </div>
               </div>
-              <Lbl>Foto do encontro</Lbl>
-              <div style={s.fotoArea} onClick={() => document.getElementById('foto-input').click()}>
-                <input id="foto-input" type="file" accept="image/*" style={{display:'none'}} onChange={handleFoto} />
-                {fotoPreview
-                  ? <img src={fotoPreview} alt="foto" style={{ width:'100%', maxHeight:200, objectFit:'contain', borderRadius:10 }} />
-                  : <p style={{ color:'#555', fontSize:15 }}>Toque para anexar a foto do dia</p>
-                }
+              <Lbl>Fotos do encontro</Lbl>
+              {/* Grade de fotos já adicionadas */}
+              {fotos.length > 0 && (
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10 }}>
+                  {fotos.map(f => (
+                    <div key={f.id} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'1' }}>
+                      <img src={f.preview} alt="foto" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                      <button
+                        onClick={() => removerFoto(f.id)}
+                        style={{ position:'absolute', top:5, right:5, width:24, height:24, borderRadius:'50%', background:'rgba(0,0,0,0.7)', border:'none', color:'#fff', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Área de drop */}
+              <div
+                style={{ ...s.fotoArea, borderColor: dragOver ? '#F2A7C3' : 'rgba(255,255,255,0.1)', background: dragOver ? 'rgba(242,167,195,0.06)' : 'transparent', transition:'all .15s' }}
+                onClick={() => document.getElementById('foto-input').click()}
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+              >
+                <input
+                  id="foto-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={{ display:'none' }}
+                  onChange={e => adicionarFotos(e.target.files)}
+                />
+                <div style={{ fontSize:28, marginBottom:6 }}>📷</div>
+                <p style={{ color:'#666', fontSize:14 }}>
+                  {fotos.length > 0 ? 'Adicionar mais fotos' : 'Arraste fotos aqui ou clique para selecionar'}
+                </p>
+                <p style={{ color:'#444', fontSize:12, marginTop:3 }}>Pode selecionar várias de uma vez</p>
               </div>
-              {fotoPreview && <button style={s.btnMini} onClick={()=>{setFotoFile(null);setFotoPreview(null)}}>Remover foto</button>}
             </Card>
 
             {/* Relato da mãe */}
@@ -342,7 +388,7 @@ export default function AppPage() {
               <InfoBox>"Olá, que bom te ver. <strong>Eu vejo você.</strong>" — tom calmo, sorriso leve, sem pressa.</InfoBox>
               <Lbl>Humor e energia no início</Lbl>
               <HumorRow opcoes={['Muito animada','Tranquila','Quieta / fechada','Agitada','Resistente','Sonolenta']}
-                valor={form.humor_inicio} onChange={v=>setForm(f=>({...f,humor_inicio:v}))} />
+                valores={form.humor_inicio} onChange={v=>setForm(f=>({...f,humor_inicio:v}))} />
               <Lbl>Como ela chegou?</Lbl>
               <textarea placeholder="O que você percebeu?" value={form.chegada} onChange={e=>setForm(f=>({...f,chegada:e.target.value}))} />
               <Lbl>Vínculo percebido</Lbl>
@@ -422,7 +468,7 @@ export default function AppPage() {
               <InfoBox><strong>Validação = construção interna.</strong> "Você foi muito bem. Eu gostei de estar com você."</InfoBox>
               <Lbl>Humor e energia ao final</Lbl>
               <HumorRow opcoes={['Muito animada','Tranquila','Satisfeita','Cansada','Emotiva','Dispersa']}
-                valor={form.humor_fim} onChange={v=>setForm(f=>({...f,humor_fim:v}))} />
+                valores={form.humor_fim} onChange={v=>setForm(f=>({...f,humor_fim:v}))} />
               <Lbl>"O que você fez aqui comigo hoje?"</Lbl>
               <textarea placeholder='"Você escreveu." "Você estava aqui."' value={form.oq_fez} onChange={e=>setForm(f=>({...f,oq_fez:e.target.value}))} />
               <Lbl>Validação que você ofereceu</Lbl>
@@ -472,7 +518,7 @@ export default function AppPage() {
               <button style={s.btnSalvar} onClick={salvar} disabled={salvando}>
                 {salvando ? 'Salvando...' : 'Salvar encontro'}
               </button>
-              <button style={s.btnLimpar} onClick={()=>{setForm(getFormVazio());setFotoFile(null);setFotoPreview(null)}}>
+              <button style={s.btnLimpar} onClick={()=>{setForm(getFormVazio());setFotos([])}}>
                 Limpar
               </button>
               {mensagem && <p style={{ width:'100%', fontSize:14, color: mensagem.startsWith('Erro') ? '#f87171' : '#5DCAA5' }}>{mensagem}</p>}
@@ -557,10 +603,23 @@ export default function AppPage() {
                     </div>
                   )}
 
-                  {/* Foto */}
-                  {sessaoAtiva.foto_url && (
-                    <img src={sessaoAtiva.foto_url} alt="foto" style={{ width:'100%', maxHeight:220, objectFit:'contain', borderRadius:12, marginBottom:16 }} />
-                  )}
+                  {/* Fotos */}
+                  {sessaoAtiva.foto_url && (() => {
+                    let urls = []
+                    try { urls = JSON.parse(sessaoAtiva.foto_url) }
+                    catch { urls = [sessaoAtiva.foto_url] }
+                    if (!Array.isArray(urls)) urls = [urls]
+                    return urls.length > 0 ? (
+                      <div style={{ display:'grid', gridTemplateColumns: urls.length > 1 ? '1fr 1fr' : '1fr', gap:8, marginBottom:16 }}>
+                        {urls.map((url, i) => (
+                          <img key={i} src={url} alt={`foto ${i+1}`}
+                            style={{ width:'100%', maxHeight:220, objectFit:'cover', borderRadius:12 }}
+                            onError={e => { e.target.style.display='none' }}
+                          />
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
 
                   {/* Estrelas */}
                   <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:16, padding:'10px 14px', background:'rgba(255,255,255,0.03)', borderRadius:10 }}>
@@ -581,10 +640,10 @@ export default function AppPage() {
                   </div>
 
                   {/* Humor */}
-                  {(sessaoAtiva.humor_inicio || sessaoAtiva.humor_fim) && (
+                  {((sessaoAtiva.humor_inicio?.length) || (sessaoAtiva.humor_fim?.length)) && (
                     <DetalheSecao titulo="Humor">
-                      <DetalheItem label="Início" val={sessaoAtiva.humor_inicio} />
-                      <DetalheItem label="Final" val={sessaoAtiva.humor_fim} />
+                      <DetalheItem label="Início" val={Array.isArray(sessaoAtiva.humor_inicio) ? sessaoAtiva.humor_inicio.join(', ') : sessaoAtiva.humor_inicio} />
+                      <DetalheItem label="Final" val={Array.isArray(sessaoAtiva.humor_fim) ? sessaoAtiva.humor_fim.join(', ') : sessaoAtiva.humor_fim} />
                     </DetalheSecao>
                   )}
 
@@ -791,12 +850,23 @@ function Estrelas({ valor, onChange }) {
     </div>
   )
 }
-function HumorRow({ opcoes, valor, onChange }) {
+function HumorRow({ opcoes, valores = [], onChange }) {
+  function toggle(o) {
+    const atual = Array.isArray(valores) ? valores : (valores ? [valores] : [])
+    onChange(atual.includes(o) ? atual.filter(v => v !== o) : [...atual, o])
+  }
+  const atual = Array.isArray(valores) ? valores : (valores ? [valores] : [])
   return (
     <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:8 }}>
       {opcoes.map(o => (
-        <button key={o} style={{ padding:'7px 13px', fontSize:15, border:`1.5px solid ${valor===o?'#F2A7C3':'rgba(255,255,255,0.1)'}`, borderRadius:20, background: valor===o?'rgba(242,167,195,0.15)':'transparent', color: valor===o?'#F2A7C3':'#888', cursor:'pointer' }}
-          onClick={()=>onChange(valor===o?'':o)}>{o}</button>
+        <button key={o} style={{
+          padding:'7px 13px', fontSize:15,
+          border:`1.5px solid ${atual.includes(o) ? '#F2A7C3' : 'rgba(255,255,255,0.1)'}`,
+          borderRadius:20,
+          background: atual.includes(o) ? 'rgba(242,167,195,0.15)' : 'transparent',
+          color: atual.includes(o) ? '#F2A7C3' : '#888',
+          cursor:'pointer'
+        }} onClick={() => toggle(o)}>{o}</button>
       ))}
     </div>
   )
