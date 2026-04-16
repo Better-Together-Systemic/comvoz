@@ -35,6 +35,9 @@ export default function AppPage() {
   const [novaPacNome, setNovaPacNome] = useState('')
   const [novaPacMae, setNovaPacMae] = useState('')
   const [showNovaPac, setShowNovaPac] = useState(false)
+  const [criandoPac, setCriandoPac] = useState(false)
+  const [erroPac, setErroPac] = useState('')
+  const [loadingPac, setLoadingPac] = useState(false)
 
   function getFormVazio() {
     return {
@@ -55,12 +58,26 @@ export default function AppPage() {
   }
 
   useEffect(() => {
-    if (user) { fetchPacientes(); fetchSessoes() }
-  }, [user])
+    if (user && profile) {
+      fetchPacientes()
+      fetchSessoes()
+    }
+  }, [user, profile])
 
   async function fetchPacientes() {
-    const { data } = await supabase.from('pacientes').select('*').eq('ativo', true).order('nome')
-    setPacientes(data || [])
+    setLoadingPac(true)
+    const { data, error } = await supabase
+      .from('pacientes')
+      .select('*')
+      .eq('ativo', true)
+      .order('nome')
+    if (error) {
+      console.error('Erro ao buscar pacientes:', error)
+      setErroPac('Erro ao carregar pacientes: ' + error.message)
+    } else {
+      setPacientes(data || [])
+    }
+    setLoadingPac(false)
   }
 
   async function fetchSessoes() {
@@ -73,17 +90,34 @@ export default function AppPage() {
   }
 
   async function criarPaciente() {
-    if (!novaPacNome.trim()) return
-    const { data, error } = await supabase.from('pacientes').insert({
-      terapeuta_id: user.id,
-      nome: novaPacNome.trim(),
-      nome_mae: novaPacMae.trim() || null,
-    }).select().single()
-    if (!error) {
-      setPacientes(prev => [...prev, data].sort((a,b) => a.nome.localeCompare(b.nome)))
-      setForm(f => ({ ...f, paciente_id: data.id }))
-      setNovaPacNome(''); setNovaPacMae(''); setShowNovaPac(false)
+    if (!novaPacNome.trim()) {
+      setErroPac('Digite o nome da paciente.')
+      return
     }
+    setCriandoPac(true)
+    setErroPac('')
+    const { data, error } = await supabase
+      .from('pacientes')
+      .insert({
+        terapeuta_id: user.id,
+        nome: novaPacNome.trim(),
+        nome_mae: novaPacMae.trim() || null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Erro ao criar paciente:', error)
+      setErroPac('Erro ao criar: ' + error.message)
+    } else {
+      setPacientes(prev => [...prev, data].sort((a, b) => a.nome.localeCompare(b.nome)))
+      setForm(f => ({ ...f, paciente_id: data.id }))
+      setNovaPacNome('')
+      setNovaPacMae('')
+      setShowNovaPac(false)
+      setErroPac('')
+    }
+    setCriandoPac(false)
   }
 
   function handleFoto(e) {
@@ -184,18 +218,55 @@ export default function AppPage() {
               <div style={s.g2}>
                 <div>
                   <Lbl>Paciente</Lbl>
-                  <select value={form.paciente_id} onChange={e => setForm(f=>({...f, paciente_id:e.target.value}))}>
-                    <option value="">Selecione...</option>
-                    {pacientes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                  </select>
-                  <button style={s.btnMini} onClick={() => setShowNovaPac(v=>!v)}>
-                    {showNovaPac ? '- Cancelar' : '+ Nova paciente'}
+                  {loadingPac
+                    ? <p style={{ color:'#666', fontSize:14, padding:'8px 0' }}>Carregando pacientes...</p>
+                    : (
+                      <select
+                        value={form.paciente_id}
+                        onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}
+                      >
+                        <option value="">
+                          {pacientes.length === 0 ? 'Nenhuma paciente ainda — crie abaixo' : 'Selecione a paciente...'}
+                        </option>
+                        {pacientes.map(p => (
+                          <option key={p.id} value={p.id}>{p.nome}</option>
+                        ))}
+                      </select>
+                    )
+                  }
+                  <button
+                    style={s.btnMini}
+                    onClick={() => { setShowNovaPac(!showNovaPac); setErroPac('') }}
+                  >
+                    {showNovaPac ? '✕ Cancelar' : '+ Nova paciente'}
                   </button>
                   {showNovaPac && (
-                    <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:6 }}>
-                      <input placeholder="Nome da paciente" value={novaPacNome} onChange={e=>setNovaPacNome(e.target.value)} />
-                      <input placeholder="Nome da mãe (opcional)" value={novaPacMae} onChange={e=>setNovaPacMae(e.target.value)} />
-                      <button style={s.btnTeal} onClick={criarPaciente}>Criar e selecionar</button>
+                    <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8, padding:'12px', background:'rgba(255,255,255,0.03)', borderRadius:12, border:'1px solid rgba(255,255,255,0.08)' }}>
+                      <input
+                        placeholder="Nome completo da paciente *"
+                        value={novaPacNome}
+                        onChange={e => { setNovaPacNome(e.target.value); setErroPac('') }}
+                        onKeyDown={e => e.key === 'Enter' && criarPaciente()}
+                        autoFocus
+                      />
+                      <input
+                        placeholder="Nome da mãe (opcional)"
+                        value={novaPacMae}
+                        onChange={e => setNovaPacMae(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && criarPaciente()}
+                      />
+                      {erroPac && (
+                        <p style={{ fontSize:13, color:'#f87171', background:'rgba(248,113,113,0.1)', borderRadius:8, padding:'6px 10px' }}>
+                          {erroPac}
+                        </p>
+                      )}
+                      <button
+                        style={{ ...s.btnTeal, opacity: criandoPac ? 0.6 : 1 }}
+                        onClick={criarPaciente}
+                        disabled={criandoPac}
+                      >
+                        {criandoPac ? 'Criando...' : 'Criar e selecionar'}
+                      </button>
                     </div>
                   )}
                 </div>
