@@ -38,6 +38,8 @@ export default function AppPage() {
   const [criandoPac, setCriandoPac] = useState(false)
   const [erroPac, setErroPac] = useState('')
   const [loadingPac, setLoadingPac] = useState(false)
+  const [sessaoAtiva, setSessaoAtiva] = useState(null)
+  const [busca, setBusca] = useState('')
 
   function getFormVazio() {
     return {
@@ -87,6 +89,15 @@ export default function AppPage() {
       .order('data_sessao', { ascending: false })
       .limit(100)
     setSessoes(data || [])
+  }
+
+  async function excluirSessao(id) {
+    if (!confirm('Excluir este registro permanentemente?')) return
+    const { error } = await supabase.from('sessoes').delete().eq('id', id)
+    if (!error) {
+      setSessoes(prev => prev.filter(s => s.id !== id))
+      setSessaoAtiva(null)
+    }
   }
 
   async function criarPaciente() {
@@ -472,23 +483,210 @@ export default function AppPage() {
         {/* ══════ HISTÓRICO ══════ */}
         {aba === 'historico' && (
           <div>
-            {sessoes.length === 0
-              ? <div style={s.empty}>Nenhuma sessão registrada ainda.</div>
-              : sessoes.map(sess => {
-                  const sk = SK[sess.semana]
-                  return (
-                    <div key={sess.id} style={s.regItem}>
-                      <div style={s.regTop}>
-                        <span style={s.regNome}>{sess.pacientes?.nome || '—'}</span>
-                        <span style={{ fontSize:13, color:'#666' }}>{fmtD(sess.data_sessao)}</span>
+            {/* Busca */}
+            <div style={{ marginBottom:'1rem' }}>
+              <input
+                placeholder="Buscar por nome da paciente..."
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                style={{ background:'#111', borderColor:'rgba(255,255,255,0.1)' }}
+              />
+            </div>
+
+            {/* Lista */}
+            {sessoes.filter(s =>
+              !busca || s.pacientes?.nome?.toLowerCase().includes(busca.toLowerCase())
+            ).length === 0
+              ? <div style={s.empty}>Nenhuma sessão encontrada.</div>
+              : sessoes
+                  .filter(s => !busca || s.pacientes?.nome?.toLowerCase().includes(busca.toLowerCase()))
+                  .map(sess => {
+                    const sk = SK[sess.semana]
+                    return (
+                      <div
+                        key={sess.id}
+                        style={{ ...s.regItem, cursor:'pointer' }}
+                        onClick={() => setSessaoAtiva(sess)}
+                      >
+                        <div style={s.regTop}>
+                          <span style={s.regNome}>{sess.pacientes?.nome || '—'}</span>
+                          <span style={{ fontSize:13, color:'#666' }}>{fmtD(sess.data_sessao)}</span>
+                        </div>
+                        <div style={{ fontSize:13, color:'#666', marginTop:3 }}>
+                          {sk?.label || sess.semana || 'Sem semana'}
+                          {sess.st_geral ? ' · ' + '★'.repeat(sess.st_geral) + '☆'.repeat(5 - sess.st_geral) : ''}
+                        </div>
+                        {sess.palavra_encontro && (
+                          <div style={{ fontSize:16, fontWeight:500, color:'#F2A7C3', marginTop:4 }}>
+                            "{sess.palavra_encontro}"
+                          </div>
+                        )}
+                        {sess.frase && (
+                          <div style={{ fontSize:13, color:'#666', fontStyle:'italic' }}>"{sess.frase}"</div>
+                        )}
+                        <div style={{ fontSize:12, color:'#444', marginTop:6 }}>Toque para ver o registro completo →</div>
                       </div>
-                      <div style={{ fontSize:13, color:'#666', marginTop:3 }}>{sk?.label || sess.semana || 'Sem semana'}{sess.st_geral ? ' · '+'★'.repeat(sess.st_geral) : ''}</div>
-                      {sess.palavra_encontro && <div style={{ fontSize:16, fontWeight:500, color:'#F2A7C3', marginTop:4 }}>"{sess.palavra_encontro}"</div>}
-                      {sess.frase && <div style={{ fontSize:13, color:'#666', fontStyle:'italic' }}>"{sess.frase}"</div>}
-                    </div>
-                  )
-                })
+                    )
+                  })
             }
+
+            {/* MODAL DE DETALHE */}
+            {sessaoAtiva && (
+              <div
+                style={s.modalBg}
+                onClick={e => { if (e.target === e.currentTarget) setSessaoAtiva(null) }}
+              >
+                <div style={s.modalBox}>
+                  {/* Cabeçalho do modal */}
+                  <div style={s.modalHeader}>
+                    <div>
+                      <div style={{ fontSize:19, fontWeight:500, color:'#f0f0f0' }}>
+                        {sessaoAtiva.pacientes?.nome || '—'}
+                      </div>
+                      <div style={{ fontSize:13, color:'#888', marginTop:2 }}>
+                        {SK[sessaoAtiva.semana]?.label || sessaoAtiva.semana || '—'} · {fmtD(sessaoAtiva.data_sessao)}
+                      </div>
+                    </div>
+                    <button style={s.modalClose} onClick={() => setSessaoAtiva(null)}>✕</button>
+                  </div>
+
+                  {/* Palavra destaque */}
+                  {sessaoAtiva.palavra_encontro && (
+                    <div style={{ background:'rgba(242,167,195,0.1)', border:'1px solid rgba(242,167,195,0.25)', borderRadius:12, padding:'10px 16px', marginBottom:16, fontSize:20, fontWeight:500, color:'#F2A7C3', textAlign:'center' }}>
+                      "{sessaoAtiva.palavra_encontro}"
+                    </div>
+                  )}
+
+                  {/* Foto */}
+                  {sessaoAtiva.foto_url && (
+                    <img src={sessaoAtiva.foto_url} alt="foto" style={{ width:'100%', maxHeight:220, objectFit:'contain', borderRadius:12, marginBottom:16 }} />
+                  )}
+
+                  {/* Estrelas */}
+                  <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:16, padding:'10px 14px', background:'rgba(255,255,255,0.03)', borderRadius:10 }}>
+                    {[
+                      { label:'Vínculo', val: sessaoAtiva.st_vinculo },
+                      { label:'Envolvimento', val: sessaoAtiva.st_envolvimento },
+                      { label:'Autoestima', val: sessaoAtiva.st_autoestima },
+                      { label:'Evolução geral', val: sessaoAtiva.st_geral },
+                    ].map(item => (
+                      <div key={item.label}>
+                        <div style={{ fontSize:11, color:'#666', marginBottom:2 }}>{item.label}</div>
+                        <div style={{ fontSize:15, color:'#FFD966' }}>
+                          {'★'.repeat(item.val || 0)}
+                          <span style={{ color:'#333' }}>{'★'.repeat(5 - (item.val || 0))}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Humor */}
+                  {(sessaoAtiva.humor_inicio || sessaoAtiva.humor_fim) && (
+                    <DetalheSecao titulo="Humor">
+                      <DetalheItem label="Início" val={sessaoAtiva.humor_inicio} />
+                      <DetalheItem label="Final" val={sessaoAtiva.humor_fim} />
+                    </DetalheSecao>
+                  )}
+
+                  {/* Relato da mãe */}
+                  <DetalheSecao titulo="Relato da mãe" cor="#A8E6CF">
+                    <DetalheItem label="Antes do encontro" val={sessaoAtiva.mae_antes} />
+                    <DetalheItem label="Depois do encontro" val={sessaoAtiva.mae_depois} />
+                    <DetalheItem label="Avaliação" val={sessaoAtiva.mae_avaliacao} />
+                    <DetalheItem label="Observações sobre a mãe" val={sessaoAtiva.mae_av_obs} />
+                    <DetalheItem label="Orientação dada" val={sessaoAtiva.mae_orientacao} />
+                  </DetalheSecao>
+
+                  {/* Chegada */}
+                  <DetalheSecao titulo="1. Chegada — rapport" cor="#F2A7C3">
+                    <DetalheItem label="Como ela chegou" val={sessaoAtiva.chegada} />
+                    {sessaoAtiva.conv_checks?.length > 0 && (
+                      <DetalheItem label="Perguntas usadas" val={sessaoAtiva.conv_checks.join(' · ')} />
+                    )}
+                    <DetalheItem label="Como ela respondeu" val={sessaoAtiva.conversa} />
+                  </DetalheSecao>
+
+                  {/* Atividade */}
+                  <DetalheSecao titulo="3. Atividade central" cor="#5DCAA5">
+                    <DetalheItem label="Frase trabalhada" val={sessaoAtiva.frase} destaque />
+                    {sessaoAtiva.com_func?.length > 0 && (
+                      <DetalheItem label="Comunicação funcional" val={sessaoAtiva.com_func.map(c => ({
+                        iniciou_fala:'Iniciou fala espontânea',
+                        respondeu_perguntada:'Respondeu quando perguntada',
+                        usou_frase_trabalhada:'Usou a frase trabalhada'
+                      }[c]||c)).join(' · ')} />
+                    )}
+                    {sessaoAtiva.ativ_checks?.length > 0 && (
+                      <DetalheItem label="Atividades realizadas" val={sessaoAtiva.ativ_checks.join(' · ')} />
+                    )}
+                    <DetalheItem label="Palavras novas espontâneas" val={sessaoAtiva.palavras_novas} />
+                    <DetalheItem label="O que ela expressou" val={sessaoAtiva.expressao} />
+                    <DetalheItem label="Corpo e emoção" val={sessaoAtiva.corpo} />
+                    <DetalheItem label="Material usado" val={sessaoAtiva.material} />
+                    {sessaoAtiva.obs_checks?.length > 0 && (
+                      <DetalheItem label="O que foi observado" val={sessaoAtiva.obs_checks.join(' · ')} />
+                    )}
+                  </DetalheSecao>
+
+                  {/* Casa */}
+                  <DetalheSecao titulo="Prática em casa" cor="#90CBF9">
+                    <DetalheItem label="O que ela trouxe da semana anterior" val={sessaoAtiva.casa_anterior} />
+                    {sessaoAtiva.casa_checks?.length > 0 && (
+                      <DetalheItem label="Combinações desta semana" val={sessaoAtiva.casa_checks.join(' · ')} />
+                    )}
+                    <DetalheItem label="Observações" val={sessaoAtiva.casa_obs} />
+                  </DetalheSecao>
+
+                  {/* Encerramento */}
+                  <DetalheSecao titulo="4. Encerramento" cor="#C4B0F5">
+                    <DetalheItem label='"O que você fez aqui comigo hoje?"' val={sessaoAtiva.oq_fez} />
+                    <DetalheItem label="Validação oferecida" val={sessaoAtiva.validacao} />
+                    <DetalheItem label="Resposta ao reconhecimento" val={sessaoAtiva.resposta_rec} />
+                  </DetalheSecao>
+
+                  {/* Para a mãe */}
+                  {(sessaoAtiva.para_mae || sessaoAtiva.para_mae_ativ) && (
+                    <DetalheSecao titulo="Para a mãe" cor="#FFB347">
+                      <DetalheItem label="Mensagem" val={sessaoAtiva.para_mae} />
+                      <DetalheItem label="Atividade juntas" val={sessaoAtiva.para_mae_ativ} />
+                    </DetalheSecao>
+                  )}
+
+                  {/* Reflexão */}
+                  <DetalheSecao titulo="Reflexão final" cor="#90CBF9">
+                    <DetalheItem label="O que você aprendeu com ela hoje" val={sessaoAtiva.aprendeu} />
+                    <DetalheItem label="Observações livres" val={sessaoAtiva.obs} />
+                    <DetalheItem label="Foco do próximo encontro" val={sessaoAtiva.prox} />
+                  </DetalheSecao>
+
+                  {/* Clínico — só aparece se tiver algo */}
+                  {(sessaoAtiva.conf_hipoteses || sessaoAtiva.conf_indicadores || sessaoAtiva.conf_alertas || sessaoAtiva.conf_encam) && (
+                    <DetalheSecao titulo="Anotações clínicas" cor="#9B59B6">
+                      <DetalheItem label="Hipóteses clínicas" val={sessaoAtiva.conf_hipoteses} />
+                      <DetalheItem label="Indicadores de desenvolvimento" val={sessaoAtiva.conf_indicadores} />
+                      <DetalheItem label="Alertas" val={sessaoAtiva.conf_alertas} />
+                      <DetalheItem label="Encaminhamentos" val={sessaoAtiva.conf_encam} />
+                    </DetalheSecao>
+                  )}
+
+                  {/* Ações */}
+                  <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
+                    <button
+                      style={{ ...s.btnLimpar, flex:1 }}
+                      onClick={() => setSessaoAtiva(null)}
+                    >
+                      Fechar
+                    </button>
+                    <button
+                      style={{ padding:'10px 20px', fontSize:15, fontWeight:500, background:'rgba(248,113,113,0.1)', color:'#f87171', border:'1px solid rgba(248,113,113,0.25)', borderRadius:24, cursor:'pointer' }}
+                      onClick={() => excluirSessao(sessaoAtiva.id)}
+                    >
+                      Excluir registro
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -531,6 +729,42 @@ export default function AppPage() {
 }
 
 // ─── COMPONENTES INTERNOS ───
+function DetalheSecao({ titulo, cor = '#F2A7C3', children }) {
+  const hasContent = Array.isArray(children)
+    ? children.some(c => c && c.props?.val)
+    : children?.props?.val
+  if (!hasContent) return null
+  return (
+    <div style={{ marginBottom:16 }}>
+      <div style={{ fontSize:11, fontWeight:500, color: cor, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${cor}30` }}>
+        {titulo}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function DetalheItem({ label, val, destaque }) {
+  if (!val || (Array.isArray(val) && !val.length)) return null
+  return (
+    <div style={{ marginBottom:10 }}>
+      <div style={{ fontSize:12, color:'#555', marginBottom:3 }}>{label}</div>
+      <div style={{
+        fontSize: destaque ? 16 : 15,
+        color: destaque ? '#FFD966' : '#ccc',
+        fontStyle: destaque ? 'italic' : 'normal',
+        fontWeight: destaque ? 500 : 400,
+        lineHeight: 1.5,
+        background: destaque ? 'rgba(255,217,102,0.08)' : 'transparent',
+        borderRadius: destaque ? 8 : 0,
+        padding: destaque ? '6px 10px' : 0,
+      }}>
+        {val}
+      </div>
+    </div>
+  )
+}
+
 function Card({ cor, titulo, pill, children }) {
   return (
     <div style={{ background:'#111', border:'1px solid rgba(255,255,255,0.07)', borderRadius:16, padding:'1.2rem', marginBottom:'1rem', borderLeft:`4px solid ${cor}`, borderTopLeftRadius:0, borderBottomLeftRadius:0 }}>
@@ -634,4 +868,24 @@ const s = {
   pill: { fontSize:12, fontWeight:500, padding:'3px 10px', borderRadius:20, background:'rgba(242,167,195,0.12)', color:'#F2A7C3' },
   progBg: { background:'rgba(255,255,255,0.06)', borderRadius:8, height:8, overflow:'hidden', marginTop:6 },
   progBar: { height:8, borderRadius:8, background:'#5DCAA5' },
+  modalBg: {
+    position:'fixed', inset:0, background:'rgba(0,0,0,0.75)',
+    display:'flex', alignItems:'flex-start', justifyContent:'center',
+    zIndex:200, padding:'1rem', overflowY:'auto',
+  },
+  modalBox: {
+    background:'#111', border:'1px solid rgba(255,255,255,0.1)',
+    borderRadius:20, padding:'1.5rem', width:'100%', maxWidth:660,
+    marginTop:'2rem', marginBottom:'2rem',
+  },
+  modalHeader: {
+    display:'flex', justifyContent:'space-between', alignItems:'flex-start',
+    gap:12, marginBottom:20, paddingBottom:16,
+    borderBottom:'1px solid rgba(255,255,255,0.07)',
+  },
+  modalClose: {
+    background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)',
+    borderRadius:'50%', width:32, height:32, fontSize:16, color:'#888',
+    display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+  },
 }
